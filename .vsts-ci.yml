@@ -6,10 +6,10 @@ trigger:
     - master
     - refs/tags/*
 
-phases:
-- phase: lint
-  queue:
-    name: 'Hosted Linux Preview'
+jobs:
+- job: lint
+  pool:
+    vmImage: 'Ubuntu 16.04'
 
   steps:
   - task: UsePythonVersion@0
@@ -25,10 +25,11 @@ phases:
 
 
 
-- phase: docs
-  queue:
-    name: 'Hosted Linux Preview'
-    parallel: 2
+- job: docs
+  pool:
+    vmImage: 'Ubuntu 16.04'
+  strategy:
+    maxParallel: 2
     matrix:
       readthedocs:
         toxenv: 'docs'
@@ -47,10 +48,11 @@ phases:
   - script: 'tox -e $(toxenv)'
     displayName: run tox
 
-- phase: linux
-  queue:
-    name: 'Hosted Linux Preview'
-    parallel: 4
+- job: linux
+  pool:
+    vmImage: 'Ubuntu 16.04'
+  strategy:
+    maxParallel: 4
     matrix:
       python27:
         python.version: '2.7'
@@ -83,8 +85,9 @@ phases:
     inputs:
       testResultsFiles: '.tox/test-results.*.xml'
       mergeTestResults: true
-      testRunTitle: '$(toxenv)'
+      testRunTitle: '$(agent.os) py$(python.version)'
       platform: linux
+    condition: succeededOrFailed()
 
   - script: 'python -m tox -e coverage'
     displayName: generate coverage.xml
@@ -96,15 +99,18 @@ phases:
     inputs:
       codeCoverageTool: 'cobertura'
       summaryFileLocation: '$(System.DefaultWorkingDirectory)/.tox/coverage.xml'
+      reportDirectory: '$(System.DefaultWorkingDirectory)/.tox/htmlcov'
       failIfCoverageEmpty: true
 
   - script: 'python -m tox -e codecov -- -t $(CODECOV_TOKEN) --required -n "$(agent.os)-$(python.version)" --build "$(Build.DefinitionName)" --env OS=$(agent.os) python=$(python.version)'
     displayName: upload codecov
+    condition: and(succeeded(), variables['CODECOV_TOKEN'])
 
-- phase: windows
-  queue:
-    name: 'Hosted VS2017'
-    parallel: 4
+- job: windows
+  pool:
+    vmImage: 'vs2017-win2016'
+  strategy:
+    maxParallel: 4
     matrix:
       python27:
         python.version: '2.7'
@@ -115,7 +121,7 @@ phases:
       python36:
         python.version: '3.6'
       python37:
-        python.version: '3.7.0-b2'
+        python.version: '3.7'
 
   steps:
   - task: UsePythonVersion@0
@@ -137,8 +143,9 @@ phases:
     inputs:
       testResultsFiles: '.tox/test-results.*.xml'
       mergeTestResults: true
-      testRunTitle: '$(toxenv)'
+      testRunTitle: '$(agent.os) py$(python.version)'
       platform: windows
+    condition: succeededOrFailed()
 
   - script: 'python -m tox -e coverage'
     displayName: generate coverage.xml
@@ -147,15 +154,18 @@ phases:
     inputs:
       codeCoverageTool: 'cobertura'
       summaryFileLocation: '$(System.DefaultWorkingDirectory)/.tox/coverage.xml'
+      reportDirectory: '$(System.DefaultWorkingDirectory)/.tox/htmlcov'
       failIfCoverageEmpty: true
 
   - script: 'python -m tox -e codecov -- -t $(CODECOV_TOKEN) --required -n "$(agent.os)-$(python.version)" --build "$(Build.DefinitionName)" --env OS=$(agent.os) python=$(python.version)'
     displayName: upload codecov
+    condition: and(succeeded(), variables['CODECOV_TOKEN'])
 
-- phase: macOS
-  queue:
-    name: 'Hosted macOS Preview'
-    parallel: 1
+- job: macOS
+  pool:
+    vmImage: 'macOS 10.13'
+  strategy:
+    maxParallel: 1
     matrix:
       python:
         toxenv: 'py3'
@@ -176,7 +186,8 @@ phases:
       testResultsFiles: '.tox/test-results.*.xml'
       mergeTestResults: true
       testRunTitle: '$(toxenv)'
-      platform: windows
+      platform: macos
+    condition: succeededOrFailed()
 
   - script: 'python3 -m tox -e coverage'
     displayName: generate coverage.xml
@@ -185,12 +196,14 @@ phases:
     inputs:
       codeCoverageTool: 'cobertura'
       summaryFileLocation: '$(System.DefaultWorkingDirectory)/.tox/coverage.xml'
+      reportDirectory: '$(System.DefaultWorkingDirectory)/.tox/htmlcov'
       failIfCoverageEmpty: true
 
   - script: 'python3 -m tox -e codecov -- -t $(CODECOV_TOKEN) --required -n "$(agent.os)-python3" --build "$(Build.DefinitionName)" --env OS=$(agent.os) python=3'
     displayName: upload codecov
+    condition: and(succeeded(), variables['CODECOV_TOKEN'])
 
-- phase: publish
+- job: publish
   dependsOn:
   - macOs
   - linux
@@ -198,9 +211,10 @@ phases:
   - lint
   - docs
   condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/'))
-  queue:
-    name: 'Hosted Linux Preview'
-    parallel: 1
+  pool:
+    vmImage: 'Ubuntu 16.04'
+  strategy:
+    maxParallel: 1
     matrix:
       python37:
         python.version: '3.7'
